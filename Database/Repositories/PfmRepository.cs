@@ -27,9 +27,16 @@ namespace pfm.Database.Repositories
             return result;
         }
 
-        public async Task<TransactionPagedList<TransactionEntity>> Get(int page = 1, int pageSize = 10, string sortBy = null, SortOrder sortOrder = SortOrder.Asc)
+        public async Task<TransactionPagedList<TransactionEntity>> Get(TransactionKind? transactionKind, DateTime? startDate, DateTime? endDate, int page = 1, int pageSize = 10, string sortBy = null, SortOrder sortOrder = SortOrder.Asc)
         {
             var query = _dbContext.Transactions.AsQueryable();
+
+            if(transactionKind != null)
+                query = query.Where(s=>s.Kind.Equals(transactionKind));
+            if(startDate != null)
+                query = query.Where(s=>s.Date >= startDate);
+            if(endDate != null)
+                query = query.Where(s=>s.Date <= endDate);
 
             var total = await query.CountAsync();
             var totalPages = (int)Math.Ceiling(total * 1.0 / pageSize);
@@ -79,30 +86,68 @@ namespace pfm.Database.Repositories
             return transaction;
         }
         public async Task<CategoryEntity> CreateCategory(CategoryEntity category){
-            // if (string.IsNullOrEmpty(category.ParentCode))
-            // {
-            //     category.ParentCode = null;
-            //     category.ParentCategory = null;
-            // }
-            // else 
-            // {
-            //     category.ParentCategory = await _dbContext.Categories.FirstOrDefaultAsync(c => c.Code.Equals(category.ParentCode));
-            // }
-            await _dbContext.Categories.AddAsync(category);
-            await _dbContext.SaveChangesAsync();
-            return category;
+            var check = await CategoryGet(category.Code);
+            if (check == null) {
+                if (string.IsNullOrEmpty(category.ParentCode))
+                {
+                    category.ParentCode = null;
+                    category.ParentCategory = null;
+                }
+                else 
+                {
+                    category.ParentCategory = await _dbContext.Categories.FirstOrDefaultAsync(c => c.Code.Equals(category.ParentCode));
+                }
+                await _dbContext.Categories.AddAsync(category);
+                await _dbContext.SaveChangesAsync();
+                return category;
+            }
+            else {
+                if (!string.IsNullOrEmpty(category.ParentCode))
+                    check.ParentCode = category.ParentCode;
+                check.Name = category.Name;
+                _dbContext.Update(check);
+                await _dbContext.SaveChangesAsync();
+                return check;
+            }
         }
 
-        public TransactionEntity UpdateCategory(string id, TransactionCategorizeCommand command)
+        public async Task<TransactionEntity> UpdateCategory(string id, TransactionCategorizeCommand command)
         {
-            // var pom = _dbContext.Transactions.FirstOrDefault(t => t.Id == id);
-            // if (pom != null) {
-            //     pom.CatCode = command.CatCode;
-            //     pom.Category = CategoryGet(command.CatCode);
-            //     var res = _dbContext.Transactions.Update(pom);
-            //     _dbContext.SaveChanges();
-            // }
-            return (TransactionEntity) _dbContext.Transactions.FirstOrDefault(t => t.Id == id);
+            var transaction = await _dbContext.Transactions.FirstOrDefaultAsync(t => t.Id.Equals(id));
+            var category = await _dbContext.Categories.FirstOrDefaultAsync(c => c.Code.Equals(command.CatCode));
+            if (transaction != null && category != null) {
+                transaction.CatCode = command.CatCode;
+                transaction.Category = await CategoryGet(command.CatCode);
+                var res = _dbContext.Transactions.Update(transaction);
+                _dbContext.SaveChanges();
+                return _dbContext.Transactions.FirstOrDefault(t => t.Id == id);
+            }
+            return _dbContext.Transactions.FirstOrDefault(t => t.Id == id);
+        }
+
+        public async Task<SpendingsByCategory> GetSpendingAnalytics(string catCode, DateTime? startDate, DateTime? endDate, Directions? direction)
+        {
+            var categories = await _dbContext.Categories.ToListAsync();
+            List<SpendingInCategory> spendingsByCategory = new List<SpendingInCategory>();
+            foreach (var category in categories) {
+                var transactions = await _dbContext.Transactions.Where(c=>c.CatCode.Equals(category.Code)).ToListAsync();
+                if (startDate != null)
+                    transactions = transactions.Where(t=>t.Date >= startDate).ToList();
+                if (endDate != null)
+                    transactions = transactions.Where(t=>t.Date <= endDate).ToList();
+                if (direction != null)
+                    transactions = transactions.Where(t=>t.Direction.Equals(direction)).ToList();
+                int count = transactions.Count();
+                double? ammount = transactions.Sum(t=>t.Amount);
+                spendingsByCategory.Add(new SpendingInCategory{
+                    CatCode = category.Code,
+                    Ammount = ammount,
+                    Count = count
+                });
+            }
+            return new SpendingsByCategory{
+                Groups = spendingsByCategory
+            };
         }
     }
 }

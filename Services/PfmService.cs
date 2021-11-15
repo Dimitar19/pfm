@@ -21,9 +21,9 @@ namespace pfm.Services
             _pfmRepository = pfmRepository;
             _mapper = mapper;
         }
-        public async Task<TransactionPagedList<Transaction>> GetTransactions(int page = 1, int pageSize = 10, string sortBy = null, SortOrder sortOrder = SortOrder.Asc)
+        public async Task<TransactionPagedList<Transaction>> GetTransactions(TransactionKind? transactionKind, DateTime? startDate, DateTime? endDate, int page = 1, int pageSize = 10, string sortBy = null, SortOrder sortOrder = SortOrder.Asc)
         {
-            var pagedSortedList = await _pfmRepository.Get(page, pageSize, sortBy, sortOrder);
+            var pagedSortedList = await _pfmRepository.Get(transactionKind, startDate, endDate, page, pageSize, sortBy, sortOrder);
 
             return _mapper.Map<TransactionPagedList<Transaction>>(pagedSortedList);
         }
@@ -69,7 +69,7 @@ namespace pfm.Services
                 {
                     string[] fieldData = csvReader.ReadFields();
 
-                    var check = await _pfmRepository.Get(fieldData[0]);
+                    var check = await _pfmRepository.TransactionGet(fieldData[0]);
                     if (check != null)
                         continue;
                     
@@ -152,9 +152,15 @@ namespace pfm.Services
             return categoryCreate;//temp
         }
 
-        public TransactionEntity CategorizeTransaction(string id, TransactionCategorizeCommand command){
-            var res = _pfmRepository.UpdateCategory(id, command);
-            return res;
+        public async Task<Transaction> CategorizeTransaction(string id, TransactionCategorizeCommand command){
+            var res = await _pfmRepository.UpdateCategory(id, command);
+            return _mapper.Map<Transaction>(res);
+        }
+
+        public async Task<SpendingsByCategory> GetSpendingAnalytics(string catCode, DateTime? startDate, DateTime? endDate, Directions? direction)
+        {
+            var spendingAnalytics = await _pfmRepository.GetSpendingAnalytics(catCode, startDate, endDate, direction);
+            return spendingAnalytics;
         }
     }
 }
